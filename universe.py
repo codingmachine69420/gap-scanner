@@ -136,12 +136,25 @@ def build_universe(min_market_cap: float) -> tuple[list[dict], str]:
         symbol = (row.get("symbol") or "").strip().upper()
         if not symbol or EXCLUDE_PATTERN.search(symbol):
             continue
+        # This endpoint has no "US-listed" filter param and no exchange field
+        # (confirmed against a live dump: the full row schema is symbol, name,
+        # lastsale, netchange, pctchange, marketCap, country, ipoyear, volume,
+        # sector, industry, url — exchange is simply not present). Without a
+        # country filter, ~250 foreign-domiciled ADRs above $10B (Accenture,
+        # Arm, Amcor, ...) get pulled in alongside true US names, blowing the
+        # universe well past the expected 600-900 band. "country" is the only
+        # available proxy for "US-listed" here.
+        if (row.get("country") or "").strip() != "United States":
+            continue
         cap = _parse_money(row.get("marketCap"))
         if cap is None or cap < min_market_cap:
             continue
         universe.append({
             "ticker": symbol,
             "name": (row.get("name") or "").strip(),
+            # Always None: this endpoint does not return an exchange field
+            # under any name. Left in the schema for forward compatibility;
+            # do not treat a null here as a parsing failure.
             "exchange": (row.get("exchange") or "").strip().upper() or None,
             "sector": (row.get("sector") or "").strip() or None,
             "market_cap": cap,

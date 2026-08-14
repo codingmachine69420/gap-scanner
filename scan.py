@@ -109,10 +109,18 @@ def fetch_bars(symbols: list[str], start: datetime, end: datetime,
 
     for i in range(0, len(symbols), BATCH_SIZE):
         batch = symbols[i:i + BATCH_SIZE]
+        # Alpaca uses dot notation for share classes (BRK.B); our universe
+        # carries Nasdaq's slash notation (BRK/B). A literal "/" in the
+        # symbols param 400s the ENTIRE batch, not just that one symbol, so
+        # a single dual-class ticker sharing a batch with 199 others used to
+        # take the whole batch down. Translate for the request only and
+        # translate back on the way out — safe because EXCLUDE_PATTERN
+        # already keeps any "." out of every ticker in the universe.
+        api_batch = [s.replace("/", ".") for s in batch]
         page_token = None
         while True:
             params = {
-                "symbols": ",".join(batch),
+                "symbols": ",".join(api_batch),
                 "timeframe": timeframe,
                 "start": start.isoformat(),
                 "end": end.isoformat(),
@@ -125,7 +133,7 @@ def fetch_bars(symbols: list[str], start: datetime, end: datetime,
 
             payload = _get_with_retry(ALPACA_BARS_URL, params, headers)
             for symbol, bars in (payload.get("bars") or {}).items():
-                out.setdefault(symbol, []).extend(bars)
+                out.setdefault(symbol.replace(".", "/"), []).extend(bars)
 
             page_token = payload.get("next_page_token")
             if not page_token:
