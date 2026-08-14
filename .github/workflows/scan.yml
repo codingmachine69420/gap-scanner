@@ -4,8 +4,8 @@ on:
   schedule:
     # GitHub cron is UTC only. Two entries straddle US DST; scan.py checks the
     # actual ET hour and exits 0 on the wrong one, so exactly one runs per day.
-    - cron: "5 14 * * 1-5"   # 10:05 ET during EDT (Mar-Nov)
-    - cron: "5 15 * * 1-5"   # 10:05 ET during EST (Nov-Mar)
+    - cron: "52 13 * * 1-5"   # 09:52 ET during EDT
+    - cron: "52 14 * * 1-5"   # 09:52 ET during EST
   workflow_dispatch:
     inputs:
       force:

@@ -1,7 +1,7 @@
 """
 US large-cap gap scanner.
 
-Runs once per trading day at ~10:05 ET. Everything it measures is already
+Runs once per trading day at ~09:52 ET. Everything it measures is already
 history by then, so a late run produces identical output to an on-time one.
 This is deliberate: GitHub Actions cron can drift 5-30 minutes under load,
 and the design must be indifferent to that.
@@ -9,7 +9,7 @@ and the design must be indifferent to that.
 Windows measured (all America/New_York):
   prior session close
   04:00 - 09:30   pre-market
-  09:30 - 10:00   opening range
+  09:30 - 09:50   opening range
 
 Output: data/latest.json plus a dated archive copy.
 An empty movers list is a VALID result, not an error.
@@ -51,7 +51,7 @@ BROWSER_HEADERS = {
 MIN_MARKET_CAP = float(os.environ.get("MIN_MARKET_CAP", 10e9))
 MIN_GAP = float(os.environ.get("MIN_GAP", 0.03))
 BATCH_SIZE = 200
-EXPECTED_RUN_HOUR_ET = 10  # guard: only the 10:xx ET invocation proceeds
+EXPECTED_RUN_HOUR_ET = 9  # guard: only the 9:xx ET invocation proceeds
 
 # US market holidays. Extend annually — this is deliberately explicit rather
 # than a dependency, since the list is short and the failure mode of a stale
@@ -232,14 +232,14 @@ def bars_in_window(bars: list[dict], start: datetime, end: datetime) -> list[dic
 def analyse(ticker_meta: dict, bars: list[dict], session: date,
             prior: date) -> dict | None:
     open_930 = datetime.combine(session, dtime(9, 30), ET)
-    close_1000 = datetime.combine(session, dtime(10, 0), ET)
+    or_close = datetime.combine(session, dtime(9, 50), ET)
     premkt_start = datetime.combine(session, dtime(4, 0), ET)
     prior_close_start = datetime.combine(prior, dtime(15, 50), ET)
     prior_close_end = datetime.combine(prior, dtime(16, 0), ET)
 
     prior_bars = bars_in_window(bars, prior_close_start, prior_close_end)
     premkt_bars = bars_in_window(bars, premkt_start, open_930)
-    or_bars = bars_in_window(bars, open_930, close_1000)
+    or_bars = bars_in_window(bars, open_930, or_close)
 
     if not prior_bars or not or_bars:
         return None
@@ -263,13 +263,13 @@ def analyse(ticker_meta: dict, bars: list[dict], session: date,
                        if premkt_bars else None,
         "premkt_bar_count": len(premkt_bars),
         "open_930": round(opening, 4),
-        "close_1000": round(closing, 4),
+        "or_close": round(closing, 4),
         "gap_pct": round(gap_pct, 5),
         "or_move": round((closing / opening) - 1, 5),
         "or_range_pct": round((highs - lows) / opening, 5),
         "or_high": round(highs, 4),
         "or_low": round(lows, 4),
-        "volume_930_1000": sum(b.get("v", 0) for b in or_bars),
+        "volume_or": sum(b.get("v", 0) for b in or_bars),
     }
 
 
@@ -295,7 +295,7 @@ def main() -> int:
     symbols = sorted(meta_by_ticker)
 
     bar_start = datetime.combine(prior, dtime(15, 45), ET)
-    bar_end = datetime.combine(session, dtime(10, 5), ET)
+    bar_end = datetime.combine(session, dtime(9, 52), ET)
     bars_by_symbol = fetch_bars(symbols, bar_start, bar_end)
 
     earnings = fetch_earnings(session, warnings)
@@ -349,6 +349,7 @@ def main() -> int:
             "indicative only."
         ),
         "warnings": warnings,
+        "or_window": "09:30-09:50 ET",
         "movers": movers,
     }
 
