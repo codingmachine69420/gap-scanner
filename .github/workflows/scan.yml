@@ -2,28 +2,52 @@ name: Gap Scan
 
 on:
   schedule:
-    # GitHub cron is UTC only. Two entries straddle US DST; scan.py checks the
-    # actual ET hour and exits 0 on the wrong one, so exactly one runs per day.
-    - cron: "52 13 * * 1-5"   # 09:52 ET during EDT
-    - cron: "52 14 * * 1-5"   # 09:52 ET during EST
+    # GitHub cron is UTC only, and Actions cron can jitter 20+ minutes under
+    # load. So each mode starts well before its own capture target and lets
+    # scan.py sleep to it precisely; each mode also gets a backup cron in
+    # case the primary is delayed past the target. All eight straddle DST.
+    # Every cron fires both jobs below — scan.py's should_run() guard plus
+    # its per-mode, same-day idempotency check make the extra firings cheap
+    # no-ops once that mode's file for today is committed. That includes a
+    # cross-job wrong-DST case (e.g. the range job woken by a fast-oriented
+    # or wrong-season cron up to 87 min before its own 10:02:00 target) —
+    # scan.py's MAX_SLEEP_SECONDS is sized to sleep through that, not reject
+    # it, since an early start is harmless by design.
+    - cron: "0 13 * * 1-5"     # 09:00 ET (EDT) — fast primary
+    - cron: "40 12 * * 1-5"    # 08:40 ET (EDT) — fast backup
+    - cron: "0 14 * * 1-5"     # 09:00 ET (EST) — fast primary
+    - cron: "40 13 * * 1-5"    # 08:40 ET (EST) — fast backup
+    - cron: "35 13 * * 1-5"    # 09:35 ET (EDT) — range primary
+    - cron: "15 13 * * 1-5"    # 09:15 ET (EDT) — range backup
+    - cron: "35 14 * * 1-5"    # 09:35 ET (EST) — range primary
+    - cron: "15 14 * * 1-5"    # 09:15 ET (EST) — range backup
   workflow_dispatch:
     inputs:
+      mode:
+        description: "RUN_MODE (only the matching job runs on manual dispatch)"
+        type: choice
+        options: [fast, range]
+        default: fast
       force:
-        description: "Bypass the ET hour / weekday guard"
+        description: "Bypass the guard and sleep-to-target"
         type: boolean
         default: true
 
 permissions:
   contents: write
 
-concurrency:
-  group: gap-scan
-  cancel-in-progress: false
-
 jobs:
-  scan:
+  scan-fast:
+    # On manual dispatch, only run the job matching the chosen mode.
+    # Scheduled runs always attempt both jobs; should_run()'s per-mode
+    # idempotency check is what keeps that safe and cheap.
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'fast'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 120
+
+    concurrency:
+      group: gap-scan-fast
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -35,10 +59,11 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Run scan
+      - name: Run scan (fast)
         env:
           ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          RUN_MODE: fast
           FORCE_RUN: ${{ inputs.force && '1' || '0' }}
         run: python scan.py
 
@@ -50,6 +75,47 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit (guard exit or identical output)."
           else
-            git commit -m "scan: $(date -u +%Y-%m-%d)"
+            git commit -m "scan(fast): $(date -u +%Y-%m-%d)"
+            git pull --rebase
+            git push
+          fi
+
+  scan-range:
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'range'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    concurrency:
+      group: gap-scan-range
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run scan (range)
+        env:
+          ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          RUN_MODE: range
+          FORCE_RUN: ${{ inputs.force && '1' || '0' }}
+        run: python scan.py
+
+      - name: Commit results
+        run: |
+          git config user.name  "gap-scanner[bot]"
+          git config user.email "gap-scanner@users.noreply.github.com"
+          git add data/ universe.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit (guard exit or identical output)."
+          else
+            git commit -m "scan(range): $(date -u +%Y-%m-%d)"
+            git pull --rebase
             git push
           fi
