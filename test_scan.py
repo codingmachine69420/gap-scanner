@@ -112,6 +112,41 @@ class ShouldRunTests(unittest.TestCase):
         self.assertTrue(scan.should_run(now, []))
 
 
+class UniverseForModeTests(unittest.TestCase):
+    """Single-writer ownership: fast mode is the only mode allowed to
+    rebuild/save universe.json (refresh=True); range mode is read-only
+    (refresh=False) and must never race fast on that file."""
+
+    def setUp(self):
+        self._orig_get_universe = scan.get_universe
+        self.calls: list[dict] = []
+
+        def _fake_get_universe(min_market_cap, refresh=True, warnings=None):
+            self.calls.append({"min_market_cap": min_market_cap,
+                               "refresh": refresh, "warnings": warnings})
+            return [], "fake_source"
+
+        scan.get_universe = _fake_get_universe
+
+    def tearDown(self):
+        scan.get_universe = self._orig_get_universe
+
+    def test_fast_mode_passes_refresh_true(self):
+        scan.universe_for_mode("fast", [])
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.calls[0]["refresh"])
+
+    def test_range_mode_passes_refresh_false(self):
+        scan.universe_for_mode("range", [])
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse(self.calls[0]["refresh"])
+
+    def test_range_mode_threads_the_warnings_list_through(self):
+        warnings: list[str] = []
+        scan.universe_for_mode("range", warnings)
+        self.assertIs(self.calls[0]["warnings"], warnings)
+
+
 class ModeOutputPathTests(unittest.TestCase):
     def test_fast_mode_writes_latest_json(self):
         self.assertEqual(scan.mode_output_path("fast"), scan.DATA_DIR / "latest.json")

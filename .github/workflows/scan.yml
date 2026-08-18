@@ -111,7 +111,9 @@ jobs:
         run: |
           git config user.name  "gap-scanner[bot]"
           git config user.email "gap-scanner@users.noreply.github.com"
-          git add data/ universe.json
+          # data/ only -- range mode is read-only on universe.json (fast
+          # mode is its single writer), so it must never stage it.
+          git add data/
           if git diff --staged --quiet; then
             echo "No changes to commit (guard exit or identical output)."
           else

@@ -445,6 +445,20 @@ def analyse(ticker_meta: dict, bars: list[dict], session: date,
     return row
 
 
+def universe_for_mode(mode: str, warnings: list[str]) -> tuple[list[dict], str]:
+    """Single-writer ownership of universe.json: fast mode is the only mode
+    that ever rebuilds and saves it (refresh=True, the pre-existing
+    behaviour). Range mode is read-only (refresh=False) -- it reads
+    whatever fast last wrote, even if stale, and never writes the file
+    itself. This works because fast (09:32:30 target) always precedes
+    range (10:02:00 target); if fast failed to run that morning, range
+    falls back to an older cache -- degraded but correct, and get_universe
+    appends a warning so it's visible in the output JSON rather than
+    silently masked.
+    """
+    return get_universe(MIN_MARKET_CAP, refresh=(mode == "fast"), warnings=warnings)
+
+
 # ---------------------------------------------------------------------- main
 
 def main() -> int:
@@ -467,7 +481,7 @@ def main() -> int:
     prior = prior_trading_day(session)
     log.info("Session %s (prior %s) mode=%s", session, prior, mode)
 
-    universe, universe_source = get_universe(MIN_MARKET_CAP)
+    universe, universe_source = universe_for_mode(mode, warnings)
     meta_by_ticker = {u["ticker"]: u for u in universe}
     symbols = sorted(meta_by_ticker)
 

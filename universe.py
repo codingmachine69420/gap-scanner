@@ -194,16 +194,69 @@ def save_cache(universe: list[dict], source: str) -> None:
 
 
 def get_universe(min_market_cap: float = 10e9,
-                 force_refresh: bool = False) -> tuple[list[dict], str]:
-    if not force_refresh:
-        cached = load_cache()
-        if cached:
-            log.info("Using cached universe (%d names)", cached["count"])
-            return cached["universe"], f"cache:{cached['source']}"
+                 force_refresh: bool = False,
+                 refresh: bool = True,
+                 warnings: list[str] | None = None) -> tuple[list[dict], str]:
+    """Single-writer ownership: fast mode (refresh=True) is the only mode
+    that ever rebuilds and saves universe.json. Range mode (refresh=False)
+    is read-only -- it never writes the file, so the two modes can never
+    race on it.
 
-    universe, source = build_universe(min_market_cap)
-    save_cache(universe, source)
-    return universe, source
+    refresh=True  (fast mode, default): current pre-existing behaviour.
+        Rebuilds and saves the cache when it's missing or older than
+        CACHE_MAX_AGE_DAYS.
+    refresh=False (range mode): read-only.
+        - Cache present, any age: used as-is, never rewritten. A cache
+          older than CACHE_MAX_AGE_DAYS is still usable (a stale universe
+          only means slightly outdated market caps) but is logged and
+          appended to `warnings` so it's visible downstream.
+        - Cache missing entirely: builds the universe in memory (a live
+          screener fetch) but does NOT write it to disk -- fast mode owns
+          that file. Logged and appended to `warnings`.
+    force_refresh: bypasses the cache entirely and always rebuilds + saves,
+        regardless of `refresh`. Only meaningful with refresh=True; used by
+        this module's CLI entry point below for an explicit manual refresh.
+    warnings: optional list to append user-visible warning strings to, in
+        the same style as scan.py's fetch_earnings(). A fresh list is used
+        internally if none is passed.
+    """
+    if warnings is None:
+        warnings = []
+
+    if refresh:
+        if not force_refresh:
+            cached = load_cache()
+            if cached:
+                log.info("Using cached universe (%d names)", cached["count"])
+                return cached["universe"], f"cache:{cached['source']}"
+
+        built, source = build_universe(min_market_cap)
+        save_cache(built, source)
+        return built, source
+
+    # refresh=False: read-only path (range mode). Never writes.
+    cached = load_cache(ignore_age=True)
+    if cached is None:
+        msg = ("Universe cache missing; range mode built it in memory "
+               "without writing (fast mode owns universe.json).")
+        log.warning(msg)
+        warnings.append(msg)
+        built, source = build_universe(min_market_cap)
+        return built, "in_memory_no_cache"
+
+    built_at = datetime.fromisoformat(cached["built_at"])
+    if built_at.tzinfo is None:
+        built_at = built_at.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(timezone.utc) - built_at).days
+    if age_days > CACHE_MAX_AGE_DAYS:
+        msg = (f"Universe cache is {age_days} days old; range mode is "
+               "read-only and did not refresh it.")
+        log.warning(msg)
+        warnings.append(msg)
+
+    log.info("Using cached universe (%d names)%s", cached["count"],
+             " [stale]" if age_days > CACHE_MAX_AGE_DAYS else "")
+    return cached["universe"], f"cache:{cached['source']}"
 
 
 if __name__ == "__main__":
