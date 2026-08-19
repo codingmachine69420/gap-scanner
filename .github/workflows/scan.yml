@@ -65,6 +65,7 @@ jobs:
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           RUN_MODE: fast
           FORCE_RUN: ${{ inputs.force && '1' || '0' }}
+          MIN_GAP: "0.05"
         run: python scan.py
 
       - name: Commit results
@@ -105,6 +106,7 @@ jobs:
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           RUN_MODE: range
           FORCE_RUN: ${{ inputs.force && '1' || '0' }}
+          MIN_GAP: "0.05"
         run: python scan.py
 
       - name: Commit results

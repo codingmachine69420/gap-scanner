@@ -107,6 +107,12 @@ MODE_OR_WINDOW_LABEL = {
 }
 MODE_OR_CLOSE_TIME = {"fast": dtime(9, 50), "range": dtime(10, 0)}
 
+# Named so build_windows() (and analyse()'s gap/open calculation) derive
+# from the same constants -- a literal duplicated in a label string is
+# exactly how a stale "09:35" window reference could reach the JSON.
+MARKET_OPEN_TIME = dtime(9, 30)
+PRIOR_CLOSE_TIME = dtime(16, 0)
+
 # range mode only: two splits of the opening range.
 #   09:32:30 - the fast-mode capture instant ("the alert"). price_0932 /
 #              move_since_alert measure whether that alert still holds by
@@ -360,11 +366,11 @@ def is_reversal(move: float | None, gap_pct: float) -> bool:
 
 def analyse(ticker_meta: dict, bars: list[dict], session: date,
             prior: date, mode: str = "fast") -> dict | None:
-    open_930 = datetime.combine(session, dtime(9, 30), ET)
+    open_930 = datetime.combine(session, MARKET_OPEN_TIME, ET)
     or_close_at = datetime.combine(session, MODE_OR_CLOSE_TIME[mode], ET)
     premkt_start = datetime.combine(session, dtime(4, 0), ET)
     prior_close_start = datetime.combine(prior, dtime(15, 50), ET)
-    prior_close_end = datetime.combine(prior, dtime(16, 0), ET)
+    prior_close_end = datetime.combine(prior, PRIOR_CLOSE_TIME, ET)
 
     prior_bars = bars_in_window(bars, prior_close_start, prior_close_end)
     premkt_bars = bars_in_window(bars, premkt_start, open_930)
@@ -459,6 +465,40 @@ def universe_for_mode(mode: str, warnings: list[str]) -> tuple[list[dict], str]:
     return get_universe(MIN_MARKET_CAP, refresh=(mode == "fast"), warnings=warnings)
 
 
+def _fmt_time(t: dtime) -> str:
+    return t.strftime("%H:%M")
+
+
+def build_windows(mode: str) -> dict[str, str]:
+    """Explicit, human-readable window labels for the output JSON, derived
+    from the same time constants the pipeline actually computes with --
+    never a separate hardcoded string that can silently drift from them.
+    A downstream consumer (e.g. the email task) should read this dict
+    rather than infer windows from field names or comments.
+
+    Fast mode gets only the "gap" key -- it has no segment/reversal data
+    to describe.
+    """
+    windows = {
+        "gap": (f"prior close {_fmt_time(PRIOR_CLOSE_TIME)} ET → "
+                f"{_fmt_time(MARKET_OPEN_TIME)} open"),
+    }
+    if mode == "range":
+        range_close = MODE_OR_CLOSE_TIME["range"]
+        windows["early"] = f"{_fmt_time(MARKET_OPEN_TIME)} → {_fmt_time(SEGMENT_SPLIT_TIME)} ET"
+        windows["late"] = f"{_fmt_time(SEGMENT_SPLIT_TIME)} → {_fmt_time(range_close)} ET"
+        windows["reversal"] = f"{_fmt_time(ALERT_SNAPSHOT_TIME)} → {_fmt_time(range_close)} ET"
+    return windows
+
+
+def sort_movers(movers: list[dict]) -> list[dict]:
+    """Movers must be sorted by abs(gap_pct) descending -- largest gaps
+    first, regardless of sign. This is a guarantee of the data layer, not
+    an instruction left for a downstream consumer to infer or enforce."""
+    movers.sort(key=lambda r: abs(r["gap_pct"]), reverse=True)
+    return movers
+
+
 # ---------------------------------------------------------------------- main
 
 def main() -> int:
@@ -545,7 +585,7 @@ def main() -> int:
         }
         movers.append(row)
 
-    movers.sort(key=lambda r: abs(r["gap_pct"]), reverse=True)
+    movers = sort_movers(movers)
 
     covered = len(bars_by_symbol)
     if covered < len(symbols) * 0.5:
@@ -573,6 +613,7 @@ def main() -> int:
         ),
         "warnings": warnings,
         "or_window": MODE_OR_WINDOW_LABEL[mode],
+        "windows": build_windows(mode),
         "movers": movers,
     }
     if mode == "range":

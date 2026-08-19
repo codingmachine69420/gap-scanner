@@ -379,5 +379,64 @@ class AnalyseModeTests(unittest.TestCase):
         self.assertEqual(row["or_close"], 105.1)
 
 
+class BuildWindowsTests(unittest.TestCase):
+    """windows must be derived from the same time constants the pipeline
+    computes with -- never a hardcoded string that can drift, which is
+    exactly how the "09:35" reversal-window error reached a downstream
+    consumer (verified: no such string exists in any live code path or
+    JSON output; the email task inferred/hallucinated it)."""
+
+    def test_fast_mode_has_only_the_gap_key(self):
+        windows = scan.build_windows("fast")
+        self.assertEqual(set(windows.keys()), {"gap"})
+
+    def test_fast_gap_label_matches_prior_close_and_open_constants(self):
+        windows = scan.build_windows("fast")
+        self.assertEqual(windows["gap"], "prior close 16:00 ET → 09:30 open")
+
+    def test_range_mode_has_all_four_keys(self):
+        windows = scan.build_windows("range")
+        self.assertEqual(set(windows.keys()), {"gap", "early", "late", "reversal"})
+
+    def test_range_window_labels_match_spec(self):
+        windows = scan.build_windows("range")
+        self.assertEqual(windows["gap"], "prior close 16:00 ET → 09:30 open")
+        self.assertEqual(windows["early"], "09:30 → 09:45 ET")
+        self.assertEqual(windows["late"], "09:45 → 10:00 ET")
+        self.assertEqual(windows["reversal"], "09:32 → 10:00 ET")
+
+    def test_reversal_label_tracks_alert_snapshot_time_constant(self):
+        # Regression guard for the exact class of bug that caused the
+        # "09:35" error: the reversal window label must be COMPUTED from
+        # ALERT_SNAPSHOT_TIME, not a separate literal that can drift from
+        # it. Temporarily move the constant and confirm the label follows.
+        original = scan.ALERT_SNAPSHOT_TIME
+        try:
+            scan.ALERT_SNAPSHOT_TIME = scan.dtime(9, 41)
+            windows = scan.build_windows("range")
+            self.assertEqual(windows["reversal"], "09:41 → 10:00 ET")
+        finally:
+            scan.ALERT_SNAPSHOT_TIME = original
+
+
+class SortMoversTests(unittest.TestCase):
+    """Sorting is a guarantee of the data layer (sort_movers(), which
+    main() calls before writing either output file), not an instruction
+    left for a downstream consumer -- e.g. the email prompt -- to infer or
+    enforce itself."""
+
+    def test_sorts_by_abs_gap_pct_descending(self):
+        rows = [
+            {"ticker": "A", "gap_pct": 0.03},
+            {"ticker": "B", "gap_pct": -0.08},
+            {"ticker": "C", "gap_pct": 0.05},
+            {"ticker": "D", "gap_pct": -0.03},
+        ]
+        result = scan.sort_movers(rows)
+        gaps_abs = [abs(r["gap_pct"]) for r in result]
+        self.assertEqual(gaps_abs, sorted(gaps_abs, reverse=True))
+        self.assertEqual([r["ticker"] for r in result], ["B", "C", "A", "D"])
+
+
 if __name__ == "__main__":
     unittest.main()
