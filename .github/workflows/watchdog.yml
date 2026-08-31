@@ -1,0 +1,97 @@
+name: Gap Scan Watchdog
+
+# scan.yml's own `schedule` trigger can silently drop every one of its 8
+# cron entries for an entire day with no failed run and no visible error
+# anywhere in the repo (see CHANGELOG.md, 2026-08-27/08-28/08-31) -- this is
+# documented, best-effort behaviour on GitHub's side, not something scan.yml
+# can fix by retrying itself. This workflow is a second, independently
+# timed cron that checks whether today's data actually landed and, if not,
+# dispatches scan.yml directly and files a visible issue. It won't stop
+# GitHub from dropping a schedule event, but it makes the two workflows'
+# cron events fail independently, so both being dropped the same day is far
+# less likely than either one alone -- and it turns recovery from "someone
+# has to notice a 'scan not ready' email and run a command by hand" into
+# something automatic.
+
+on:
+  schedule:
+    # 16:47 UTC = 12:47 ET (EDT) / 11:47 ET (EST). scan.yml's own targets
+    # are 09:32:30 ET (fast) and 10:02:00 ET (range); this leaves 2-3 hours
+    # of buffer past the later one in both DST states before checking, and
+    # sits off the top of the hour to dodge GitHub's documented high-load
+    # scheduling delay window at :00.
+    - cron: "47 16 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+concurrency:
+  group: gap-scan-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check-and-heal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check freshness
+        id: check
+        run: python .github/scripts/watchdog_check.py >> "$GITHUB_OUTPUT"
+
+      - name: Ensure watchdog label exists
+        if: steps.check.outputs.stale == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create pipeline-watchdog \
+            --color B60205 \
+            --description "Filed by .github/workflows/watchdog.yml" \
+            -R "${{ github.repository }}" 2>/dev/null || true
+
+      - name: Auto-dispatch missing scan(s)
+        if: steps.check.outputs.stale == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.check.outputs.missing_fast }}" = "true" ]; then
+            gh workflow run scan.yml -f mode=fast -f force=true -R "${{ github.repository }}"
+          fi
+          if [ "${{ steps.check.outputs.missing_range }}" = "true" ]; then
+            gh workflow run scan.yml -f mode=range -f force=true -R "${{ github.repository }}"
+          fi
+
+      - name: File or update stale-pipeline issue
+        if: steps.check.outputs.stale == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: "Gap Scan stale — ${{ steps.check.outputs.today }}"
+        run: |
+          BODY="scan.yml's scheduled cron had not produced today's data by 16:47 UTC (missing: fast=${{ steps.check.outputs.missing_fast }}, range=${{ steps.check.outputs.missing_range }}). This workflow auto-dispatched the missing mode(s) via workflow_dispatch as a same-day fix. This closes itself automatically once fresh data lands -- no action needed unless it keeps recurring. See CHANGELOG.md for the known GitHub Actions schedule-reliability issue behind this."
+          EXISTING=$(gh issue list -R "${{ github.repository }}" \
+            --label pipeline-watchdog --state open --search "\"$TITLE\" in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" -R "${{ github.repository }}" --body "$BODY"
+          else
+            gh issue create -R "${{ github.repository }}" --title "$TITLE" --body "$BODY" --label pipeline-watchdog
+          fi
+
+      - name: Close stale-pipeline issue(s) now that data is fresh
+        if: steps.check.outputs.stale == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for NUM in $(gh issue list -R "${{ github.repository }}" --label pipeline-watchdog --state open --json number --jq '.[].number'); do
+            gh issue comment "$NUM" -R "${{ github.repository }}" --body "Today's data landed -- closing."
+            gh issue close "$NUM" -R "${{ github.repository }}"
+          done
