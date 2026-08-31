@@ -7,6 +7,61 @@ changes are already tracked by commits; this file is for the "why" behind
 infra/ops fixes and for anything that happened on claude.ai rather than in
 the repo.
 
+## 2026-08-31
+
+**GitHub Actions (`scan.yml`) — scheduled cron didn't fire all day, third
+occurrence of the pattern first noted 2026-08-27/08-28.**
+
+- Symptom: `data/range.json` and `data/fast.json` on `main` stuck at
+  `session_date` 2026-08-28. `gh run list --workflow=scan.yml` showed zero
+  runs of any kind (not even a failed/cancelled attempt) between
+  2026-08-28T23:38:42Z and manual intervention at 2026-08-31T17:44Z — i.e.
+  all 8 scheduled crons for Monday 8/31 (a normal trading day) silently
+  never fired.
+- Ruled out: workflow state was `active`, repo Actions permissions were
+  `enabled`, no secrets/auth issue (manual `workflow_dispatch` of both
+  `fast` and `range` modes succeeded immediately with no code changes), and
+  the githubstatus.com incident history shows nothing covering Actions/
+  scheduling for 8/31 (or for 8/27/8/28) — only unrelated, already-resolved
+  incidents on other days (8/24, 8/26) that *did* produce visible
+  failed/cancelled run records, unlike this one.
+- Root cause: GitHub's `schedule` trigger is best-effort and, per GitHub's
+  own docs, can delay or silently drop cron events under load with no
+  error surfaced anywhere in the repo — there's no failed run to alert on
+  because no run object is ever created. This is the same failure mode
+  logged 2026-08-28 for 8/27 and 8/28, just recurring.
+- Why the 8/27–08/28 "fix" didn't prevent this: it wasn't actually a fix,
+  it was a manual workaround (a human noticing the "scan not ready" email
+  and running `gh workflow run scan.yml -f mode=... -f force=true` by
+  hand) noted at the time as "not root-caused... worth a GitHub Support
+  ticket if it happens again." Nothing was added to catch or self-heal the
+  next occurrence automatically, so it silently recurred for 3 full days
+  (8/29 weekend aside) until someone checked the raw file by hand.
+- Confirmed the Cowork alert routines *did* work as designed this time —
+  they correctly detected the stale `session_date` and sent "scan not
+  ready" emails at 13:43 and 14:34 UTC on 8/31 (subjects "Gap Alert — scan
+  not ready" / "Daily Gap Ups — scan not ready"). The gap isn't detection,
+  it's that detection only produces an easy-to-miss email and nothing
+  closes the loop automatically.
+- Fix applied: manually dispatched `gh workflow run scan.yml -f mode=fast
+  -f force=true` and `-f mode=range -f force=true` (run ids 33421179310,
+  33421183682). Both succeeded; `data/fast.json` and `data/range.json` are
+  back to `session_date` 2026-08-31, confirmed via the raw
+  `raw.githubusercontent.com` URL with a cache-busting param.
+- Durable fix implemented: `.github/workflows/watchdog.yml`, a small,
+  separately-scheduled workflow (single cron at 16:47 UTC, a couple hours
+  after `scan.yml`'s own 8-cron window) that checks whether today's
+  session data landed (via the stdlib-only `.github/scripts/
+  watchdog_check.py`, deliberately not importing `scan.py` so the watchdog
+  can't be taken down by the same bug it exists to catch) and, if not,
+  auto-dispatches `scan.yml` for the missing mode(s) and opens/updates a
+  `pipeline-watchdog`-labeled GitHub issue, self-closing once fresh data
+  lands. A second, differently-timed cron won't eliminate GitHub's
+  scheduler flakiness (see root cause above), but makes correlated failure
+  (both crons dropped the same day) far less likely, and turns the
+  recovery step from "someone reads an email and runs a command by hand"
+  into automatic.
+
 ## 2026-08-28
 
 **Cowork routines (`Gap Up Alert`, `Gap Up Brief`) — WebFetch serving stale
