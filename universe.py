@@ -139,13 +139,17 @@ def build_universe(min_market_cap: float) -> tuple[list[dict], str]:
         # This endpoint has no "US-listed" filter param and no exchange field
         # (confirmed against a live dump: the full row schema is symbol, name,
         # lastsale, netchange, pctchange, marketCap, country, ipoyear, volume,
-        # sector, industry, url — exchange is simply not present). Without a
-        # country filter, ~250 foreign-domiciled ADRs above $10B (Accenture,
-        # Arm, Amcor, ...) get pulled in alongside true US names, blowing the
-        # universe well past the expected 600-900 band. "country" is the only
-        # available proxy for "US-listed" here.
-        if (row.get("country") or "").strip() != "United States":
-            continue
+        # sector, industry, url — exchange is simply not present).
+        #
+        # Deliberately NOT filtering on country: a country != "United States"
+        # filter previously excluded every foreign-domiciled ADR regardless of
+        # which US exchange it trades on -- NVS, TM, SAP, NVO, ASML, SHEL, BP,
+        # UL, TTE, and ~250 others above $10B, including large-caps that gap
+        # on earnings same as domestic names. That was a real scanning blind
+        # spot, not just universe-size hygiene, so the tradeoff was reversed
+        # in favor of coverage: the universe now runs ~1000 names instead of
+        # ~750, and includes all US-listed common stock (foreign ADRs
+        # included) above the market-cap threshold.
         cap = _parse_money(row.get("marketCap"))
         if cap is None or cap < min_market_cap:
             continue

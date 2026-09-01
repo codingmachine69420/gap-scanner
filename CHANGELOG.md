@@ -7,6 +7,31 @@ changes are already tracked by commits; this file is for the "why" behind
 infra/ops fixes and for anything that happened on claude.ai rather than in
 the repo.
 
+## 2026-09-02
+
+**Universe (`universe.py`) — removed the `country == "United States"`
+filter; foreign-domiciled large-cap ADRs were being silently excluded
+regardless of listing exchange.**
+
+- Symptom: user feedback reported NVS (Novartis) missing from a scan and
+  hypothesized a Nasdaq-only screener excluding NYSE names. Verified that
+  hypothesis was wrong first — JPM, JNJ, V, HD, KO, DIS, CAT, GE, BA (all
+  NYSE) were already present in the cached universe. The screener endpoint
+  (`api.nasdaq.com/api/screener/stocks`) aggregates all US exchanges; it has
+  no exchange field at all.
+- Root cause: `build_universe()` dropped every row where `country !=
+  "United States"`. That's domicile, not exchange — it excluded NVS, TM,
+  SAP, NVO, ASML, SHEL, BP, UL, TTE, and ~250 other large-cap foreign ADRs
+  above $10B regardless of which US exchange they trade on. The filter was
+  originally added deliberately to keep the universe near its expected
+  600-900 name band.
+- Fix: removed the country filter entirely, trading universe-size hygiene
+  for coverage. Universe grew from 744 to 980 names (+~32%) on rebuild;
+  confirmed NVS/TM/SAP/NVO/ASML/SHEL/BP/UL/TTE now present alongside
+  existing domestic names. Flagged to the user that the larger universe
+  means more per-run yfinance calls — worth watching scan runtime and rate
+  limits on the next live run.
+
 ## 2026-09-01
 
 **GitHub Actions (`scan.yml` AND `watchdog.yml`) — both independent
