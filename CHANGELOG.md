@@ -7,6 +7,82 @@ changes are already tracked by commits; this file is for the "why" behind
 infra/ops fixes and for anything that happened on claude.ai rather than in
 the repo.
 
+## 2026-09-01
+
+**GitHub Actions (`scan.yml` AND `watchdog.yml`) — both independent
+schedule crons silently dropped on the same day, defeating the 8/31
+watchdog fix. 4th occurrence of the pattern first noted 2026-08-27/08-28.**
+
+- Symptom: `data/latest.json`/`data/range.json` on `main` still stuck at
+  `session_date` 2026-08-31 as of 12:50 ET (well past both scan.yml's
+  8:40-9:35 ET cron window and watchdog.yml's 12:47 ET check). The Gap Up
+  Alert/Brief Cowork routines correctly detected the stale data (per their
+  design) but, per their own instructions, sent a push notification
+  instead of an email since the scan wasn't ready.
+- Evidence: `gh run list --workflow=scan.yml` showed zero runs of any kind
+  between 2026-08-31T20:19:50Z and manual intervention — all 8 of today's
+  scheduled crons never fired. `gh run list --workflow=watchdog.yml` showed
+  exactly one run ever: the manual `workflow_dispatch` smoke-test right
+  after merge on 8/31. Its only scheduled cron (12:47 ET) never fired
+  either, confirmed still absent several minutes after its target time.
+  Both workflows are `active`, YAML is valid, no permissions/secrets issue.
+- Root cause: same as prior occurrences — GitHub's `schedule` trigger is
+  best-effort and can silently drop cron events with zero error surface —
+  but this time it dropped **both** independently-scheduled workflows
+  (`scan.yml`'s 8 crons and `watchdog.yml`'s 1 cron) on the same day. This
+  is the exact correlated-failure scenario `watchdog.yml`'s own design
+  comment flagged as a residual risk it could reduce but not eliminate,
+  because both workflows still ultimately depend on the same underlying
+  GitHub Actions scheduler.
+- Immediate fix applied: manually dispatched `gh workflow run scan.yml -f
+  mode=fast -f force=true` and `-f mode=range -f force=true` (run ids
+  33534342712, 33534347514). Both succeeded; verified `session_date:
+  2026-09-01` on both files via raw.githubusercontent.com with a
+  cache-busting param.
+- Durable fix for the GH Actions half: two independent attempts at "make
+  GitHub's own scheduler more reliable by adding more of its crons"
+  (scan.yml's backup crons, then a whole separate watchdog workflow) had
+  now both failed the same way on the same day — per systematic-debugging
+  practice, that's a signal to stop depending on GitHub Actions'
+  `schedule:` trigger at all rather than add a third one on top. Raised
+  with the user as an architecture decision; they chose an external
+  trigger. Implemented same day: a new claude.ai scheduled routine, **Gap
+  Scan External Watchdog** (`trig_01CioCPwoxjX65KaPfov3D3L`, cron `10 17
+  * * 1-5` = 13:10 ET/EDT · 12:10 ET/EST, i.e. after both scan.yml's own
+  window and watchdog.yml's 12:47 ET check). It runs on Anthropic's cloud
+  scheduler, not GitHub Actions, so a GitHub-side scheduling gap can't
+  take it out along with the other two. Each run: clones the repo fresh
+  (avoids the raw.githubusercontent.com caching issue entirely — reads
+  `data/*.json` from the git clone, not a fetched URL), checks
+  `session_date` against today's ET date, and if stale/missing, dispatches
+  `scan.yml` via GitHub's REST API using a fine-grained PAT scoped to only
+  this repo's Actions permission (the user's deliberate choice over
+  reusing this session's broad local `gh` token, to keep blast radius
+  small if the routine's stored config or transcripts were ever exposed).
+  Silent when data is already current; sends one push notification when
+  it has to act. Untested live as of this writing — first real firing is
+  the next weekday's 17:10 UTC.
+- **Second, separate bug found on user pushback:** the user correctly
+  suspected the "no email, push notification instead" behavior wasn't
+  purely a GitHub-side issue. Pulled both routines' actual run logs via
+  `RemoteTrigger get_run_log` for their 9/1 runs: both correctly detected
+  the stale `session_date` (their ET-date check via `TZ=America/New_York
+  date` was correct in both — not a timezone bug), but **Gap Up Brief**
+  sent the stale-notice via Gmail while **Gap Up Alert** sent it via
+  `PushNotification` instead (misfiring once first on a bad `status`
+  field before retrying). Root cause: both routine prompts state "Send
+  via Gmail to ansonpychan@gmail.com" only once, at the very end, after
+  the full success-path email-formatting spec — the early-exit "scan
+  wasn't ready"/"empty movers" branches say only "send one line" with no
+  channel, so the model has to infer the channel on those paths. Same
+  ambiguity in both prompts; different, inconsistent behavior across
+  runs (8/31: both correctly used Gmail; 9/1: Alert didn't). Fix applied
+  same day: updated both routines via `RemoteTrigger update` to say
+  "send one line via Gmail to ansonpychan@gmail.com" explicitly in each
+  early-exit branch, not just once at the end. This is unrelated to the
+  GitHub Actions scheduling issue above — two independent bugs surfaced
+  by the same incident.
+
 ## 2026-08-31
 
 **GitHub Actions (`scan.yml`) — scheduled cron didn't fire all day, third
