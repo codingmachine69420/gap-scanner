@@ -98,6 +98,57 @@ bug in its own design.**
   into transcripts/API responses, and worth a real secret-store mechanism
   if the routine platform gets one.
 
+**Follow-up #3 same day: the 9/2 self-heal edit silently broke BOTH
+routines by dropping their `permission_mode: "auto"` event — caught only
+because the user asked to run Alert manually. Both would have hung
+forever on their next scheduled fire, sending nothing at all.**
+
+- Symptom: a manual `RemoteTrigger run` of Gap Up Alert stalled
+  indefinitely on its first `WebFetch`, parked on a permission prompt.
+  Event count in `get_run_log` stayed frozen across repeated polls.
+- Root cause: `RemoteTrigger action:"update"` does **not** deep-merge
+  `job_config.ccr` — it replaces it wholesale, returning HTTP 200 with no
+  warning about what was dropped. These routines carry TWO events: a
+  `control_request` setting `permission_mode: "auto"`, then the user
+  prompt. The self-heal update earlier that day sent only the prompt
+  event, silently discarding the permission-mode event. Both routines
+  fell back to interactive permissions, where an unattended cron run
+  waits forever for an approval no human will give. Confirmed by diffing
+  the current config against the pre-edit capture: `derived_state` had
+  lost its `"permission_mode":"auto"` key entirely.
+- Impact if unnoticed: the next scheduled Alert (13:42 UTC) and Brief
+  (14:30 UTC) would each have hung and sent NOTHING — strictly worse than
+  the stale-data problem the edit was meant to fix, and silent (no error,
+  no email, just absence).
+- Two wrong turns before the fix, recorded honestly: (1) first hypothesis
+  was that adding `Bash` to `allowed_tools` had flipped it into
+  explicit-allowlist mode, so `WebFetch` was added there too — did not
+  help, the stall reproduced identically; (2) that same partial update
+  then clobbered `events` entirely (`events: []`, `model: ""`), leaving
+  both routines promptless for ~90 seconds until it was spotted and
+  restored. No scheduled fire fell in that window, so no run was affected.
+- Fix: re-sent the COMPLETE `job_config.ccr` for both routines —
+  `environment_id`, `session_context` (`model`, `sources`,
+  `allowed_tools` incl. `Bash` + `WebFetch`), and BOTH events with the
+  original `request_id`/`uuid` for the control_request. Verified
+  `derived_state.permission_mode` is `"auto"` again on both.
+- Verified live, not just by reading config back: re-ran Alert, watched
+  `WebFetch` execute with no permission prompt, fetch fresh
+  `session_date: 2026-09-02`, and deliver "Gap Alert — 2026-09-02 — 3
+  movers" (MDB −12.88%, CRDO, +1) to Gmail at 16:22 UTC. Note it sent two
+  near-identical copies 9s apart in that one manual run — cosmetic, from
+  the test only, not investigated further.
+- **Lesson for any future routine edit:** always send the complete
+  `job_config.ccr` including the control_request event, and always verify
+  by actually running the routine, not by reading the config back. The
+  config looked entirely plausible while being fatally broken. See also
+  the standing memory note on this trap.
+- Also worth noting: today's manual test exercised only the "data already
+  fresh" happy path. The self-heal branch (curl → GitHub API → wait →
+  recheck) still has never executed; whether `curl` has network egress to
+  api.github.com from that sandbox remains unproven. `Bash` itself does
+  work there (the run executed `TZ=America/New_York date` fine).
+
 **Follow-up #2 same day: found and fixed the actual root cause of the
 repeated cron drops (`scan.yml`) instead of adding another workaround
 layer — GitHub's own documented scheduling congestion at round-minute
