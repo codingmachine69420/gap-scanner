@@ -13,14 +13,25 @@ on:
     # or wrong-season cron up to 87 min before its own 10:02:00 target) —
     # scan.py's MAX_SLEEP_SECONDS is sized to sleep through that, not reject
     # it, since an early start is harmless by design.
-    - cron: "0 13 * * 1-5"     # 09:00 ET (EDT) — fast primary
-    - cron: "40 12 * * 1-5"    # 08:40 ET (EDT) — fast backup
-    - cron: "0 14 * * 1-5"     # 09:00 ET (EST) — fast primary
-    - cron: "40 13 * * 1-5"    # 08:40 ET (EST) — fast backup
-    - cron: "35 13 * * 1-5"    # 09:35 ET (EDT) — range primary
-    - cron: "15 13 * * 1-5"    # 09:15 ET (EDT) — range backup
-    - cron: "35 14 * * 1-5"    # 09:35 ET (EST) — range primary
-    - cron: "15 14 * * 1-5"    # 09:15 ET (EST) — range backup
+    #
+    # Minutes are deliberately NOT on round 5-minute marks (:00/:15/:35/:40
+    # as originally written). GitHub's own docs and community reports
+    # confirm scheduled-workflow queuing gets worst congestion at round
+    # minutes -- :00 (top of hour) especially -- and under high load the
+    # run can be dropped with ZERO trace (no run object at all, not even a
+    # failure), rather than merely delayed. That exactly matches this
+    # repo's repeated symptom (2026-08-27, 08-28, 08-31, 09-01 x2, 09-02:
+    # `gh run list` showing no runs of any kind for the whole day). Offset
+    # minutes below to sit off those congestion points; see CHANGELOG.md
+    # 2026-09-02 for the investigation.
+    - cron: "7 13 * * 1-5"      # ~09:00 ET (EDT) — fast primary
+    - cron: "33 12 * * 1-5"     # ~08:40 ET (EDT) — fast backup
+    - cron: "7 14 * * 1-5"      # ~09:00 ET (EST) — fast primary
+    - cron: "33 13 * * 1-5"     # ~08:40 ET (EST) — fast backup
+    - cron: "38 13 * * 1-5"     # ~09:35 ET (EDT) — range primary
+    - cron: "18 13 * * 1-5"     # ~09:15 ET (EDT) — range backup
+    - cron: "38 14 * * 1-5"     # ~09:35 ET (EST) — range primary
+    - cron: "18 14 * * 1-5"     # ~09:15 ET (EST) — range backup
   workflow_dispatch:
     inputs:
       mode:

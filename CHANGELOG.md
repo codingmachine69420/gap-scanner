@@ -9,6 +9,130 @@ the repo.
 
 ## 2026-09-02
 
+**GitHub Actions (`scan.yml`) — schedule cron silently dropped again, 5th
+occurrence of the pattern (8/27, 8/28, 8/31, 9/1 x2, now 9/2). External
+watchdog routine had not reached its scheduled check time yet when this
+was caught; fixed by manual dispatch instead of waiting for it.**
+
+- Symptom: `data/latest.json`/`data/range.json` on `main` still stuck at
+  `session_date` 2026-09-01 as of 10:39 ET, well past all 4 of scan.yml's
+  today-relevant crons (08:40/09:00 EDT fast, 09:15/09:35 EDT range — all
+  had already passed). `gh run list --workflow=scan.yml` showed zero runs
+  of any kind on 2026-09-02 before manual intervention, confirming another
+  full correlated drop of the schedule trigger, not a partial/flaky one.
+- Both Cowork routines correctly detected the stale data and, this time,
+  both emailed the "not ready" notice via Gmail as designed (Gap Up Alert
+  at 13:43 UTC, Gap Up Brief at 14:33 UTC) — the 9/1 fix naming Gmail
+  explicitly in both routines' early-exit branches held up under a real
+  recurrence.
+- `watchdog.yml` (GH-hosted, 16:47 UTC check) and the new external
+  claude.ai routine "Gap Scan External Watchdog" (17:10 UTC check,
+  `trig_01CioCPwoxjX65KaPfov3D3L`) had not yet reached their scheduled
+  check times when the user reported the stale-data email (~14:39 UTC) —
+  today was to be the external watchdog's first live scheduled firing.
+  Rather than wait ~2.5h to see whether either backstop would have caught
+  it, fixed immediately via the same manual path used on 9/1: `gh workflow
+  run scan.yml -f mode=fast -f force=true` and `-f mode=range
+  -f force=true`. Both succeeded; confirmed `session_date: 2026-09-02` on
+  both files after pulling `main`. Because the data was already fresh by
+  the time watchdog.yml and the external watchdog reached their check
+  windows, neither had anything to do — consistent with their "silent
+  backstop" design, but it also means this occurrence didn't actually
+  exercise either backstop end-to-end. Worth checking after the next
+  correlated drop that isn't manually pre-empted.
+- **Security note, unrelated to the scheduling bug:** fetching the
+  external watchdog routine's config via `RemoteTrigger get` returns its
+  full prompt, which embeds the fine-grained GitHub PAT in plaintext. That
+  PAT is scoped to just this repo's Actions read/write permission, but it
+  is now visible in this session's transcript (and would be in any future
+  session that re-fetches the routine's config the same way). Flagged to
+  the user; worth considering a secret-store mechanism if the routine
+  platform offers one, rather than embedding the token directly in the
+  prompt text, and rotating this PAT given it's now been printed to a
+  transcript.
+
+**Follow-up same day: found and fixed the actual reason this kept
+recurring — the external watchdog (added 9/1) can never prevent the
+"scan not ready" email by construction, because of a scheduling-order
+bug in its own design.**
+
+- Gap Up Alert checks at 13:42 UTC (9:42 ET) and Gap Up Brief at 14:30 UTC
+  (10:30 ET). The external watchdog was scheduled to check at 17:10 UTC
+  (13:10 ET) — deliberately placed *after* scan.yml's own cron window and
+  watchdog.yml's check, but nobody accounted for Alert/Brief firing hours
+  *before* that. So even on a day the external watchdog works perfectly,
+  Alert/Brief will already have sent their stale-data notice by the time
+  it runs. This is an architecture bug in the 9/1 fix, not a new instance
+  of the GH Actions scheduling issue.
+- User pushback ("this has been the issue all the time. fix!!") after a
+  6th occurrence prompted re-examining the fix itself rather than treating
+  it as more of the same known cron-drop pattern.
+- Fix: gave Gap Up Alert (`trig_01KrMjVeo4EJsDB2uZY2j6zA`) and Gap Up Brief
+  (`trig_017Kta6GBhfZAPZfoey47gok`) self-healing early-exit branches
+  instead of depending on a separately-timed watchdog. Both previously
+  only had WebFetch (no Bash) and, on stale `session_date`, went straight
+  to the "not ready" email. Updated via `RemoteTrigger update` to add
+  `Bash` to `allowed_tools` and rewrote each freshness-check branch so
+  that on stale data it now: (1) dispatches `scan.yml` itself via `curl`
+  + the same fine-grained PAT the external watchdog uses (`mode: fast`
+  for Alert, `mode: range` for Brief), (2) waits ~120s, (3) re-fetches
+  and rechecks `session_date`, and only falls back to the "not ready"
+  email if it's still stale or the dispatch failed. This fixes it at the
+  point of failure with no timing dependency on another routine.
+- Verified the PAT itself is still live via a read-only authenticated
+  `GET .../actions/workflows/scan.yml` (200) rather than spending another
+  real scan dispatch to test it; did not end-to-end test the new Bash
+  code path inside Alert/Brief's actual cloud sandbox (would require
+  artificially re-staling already-fresh data, judged not worth the
+  disruption) — first real test is whichever weekday next has scan.yml
+  drop its cron again. If Bash/curl turns out to lack network egress in
+  Alert/Brief's environment (`env_011111111111111111111117`, the
+  platform's shared default — untested for outbound API calls), the
+  dispatch attempt fails closed into the existing "not ready" email, i.e.
+  no worse than before.
+- Left `watchdog.yml` and the external claude.ai watchdog running as-is;
+  they're free extra backstops, just no longer the only ones and no
+  longer load-bearing for stopping this specific email.
+- Spreads the same GitHub PAT into 2 more routine prompts (3 total now).
+  Reiterating: worth rotating given how many times it's now been printed
+  into transcripts/API responses, and worth a real secret-store mechanism
+  if the routine platform gets one.
+
+**Follow-up #2 same day: found and fixed the actual root cause of the
+repeated cron drops (`scan.yml`) instead of adding another workaround
+layer — GitHub's own documented scheduling congestion at round-minute
+marks.**
+
+- User pushed back on treating the 6th occurrence as "just add another
+  failsafe" and asked for the underlying bug fixed instead.
+- Investigated instead of re-patching: repo is public, not archived, not
+  disabled (`gh api repos/.../…` confirmed); both `scan.yml` and
+  `watchdog.yml` show `state: active` (not `disabled_inactivity`); Actions
+  permissions are `allowed_actions: all`, `enabled: true`. Ruled out the
+  usual causes (repo-disabled, workflow-disabled, quota, fork settings).
+- `scan.yml` hasn't been edited since 2026-08-19, but 5 of the 6-7 trading
+  days since 2026-08-27 had a full-day cron drop — far too high a rate for
+  "occasional best-effort flakiness," and every failure was a complete
+  drop (zero run objects for every cron in the file that day), not a
+  partial or delayed one.
+- Root cause, confirmed via GitHub's own documentation and community
+  reports (see links in this session's chat): GitHub Actions' scheduled-
+  workflow queue gets its worst congestion at round-number minutes,
+  especially the top of the hour (`:00`) — and under high load the run can
+  be **dropped with zero trace**, not merely delayed, which is exactly
+  this repo's symptom. `scan.yml`'s 8 crons were all on round 5-minute
+  marks (`:00`, `:15`, `:35`, `:40`), with 2 of the 8 sitting exactly on
+  `:00`, the single worst spot.
+- Fix: shifted every `scan.yml` cron minute off round marks (`0→7`,
+  `40→33`, `35→38`, `15→18`), preserving the same relative timing and
+  buffer before `scan.py`'s internal sleep-to-target. `watchdog.yml`'s
+  cron (`:47`) was already off round marks, no change needed there.
+- This is a genuine root-cause fix, not a backstop — first real
+  confirmation is whichever weekday's crons fire next; if the drop rate
+  drops to roughly zero after this, that confirms the theory, and if it
+  recurs anyway, that rules it out and points back to something else
+  (possibly GitHub-side and out of this repo's control).
+
 **Universe (`universe.py`) — removed the `country == "United States"`
 filter; foreign-domiciled large-cap ADRs were being silently excluded
 regardless of listing exchange.**
