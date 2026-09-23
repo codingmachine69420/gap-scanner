@@ -10,6 +10,35 @@ than in the repo.
 Re-created 2026-09-19. The previous CHANGELOG was deleted by the 2026-09-17
 revert (`81f08f3`). Much of what it asserted was wrong — see below.
 
+## 2026-09-22
+
+**Hourly "arm and sleep" schedule replaces the eight fixed crons. No external
+clock, no credentials, all on GitHub.**
+
+The delay got worse. The 9/21 crons arrived 18:18–19:40 UTC (14:18+ ET), past
+the 14:00 guard, so **no data was written on 9/21 at all**. On 9/18 they
+arrived 16:42–17:49 UTC and data landed at 12:42 ET. That's a 5–7 hour lag.
+
+The fix: stop needing a run to land in a narrow slot. `scan.yml` now fires
+`17 * * * *`, every hour of every day. `should_run()`'s guard window opens
+`ARM_LEAD` (5h30m) before each mode's target: 04:02:30 ET for fast and
+04:32:00 ET for range. The first run landing inside the window sleeps on the
+runner until the target. The concurrency groups queue later arrivals, and
+`already_ran_today()` turns them into no-ops. Runs outside the window exit in
+about 15s. The repo is public, so runner minutes are free. `timeout-minutes`
+went from 120 to 360, the hosted-runner maximum. `MAX_SLEEP_SECONDS` is
+tied to `ARM_LEAD`. The DST-specific crons are gone because scan.py works in
+ET.
+
+Assumption to verify: this assumes GitHub keeps delivering hourly crons
+under roughly the same lag. If the lag is 3–10 h, at least one arrival lands
+in each 5h30m window. It cannot help on a day where GitHub drops everything
+(e.g. 9/2).
+
+Verify: overnight `gh run list --workflow=scan.yml` should show hourly
+`schedule` runs, and `scan(fast)` should commit at ~09:33 ET on three
+consecutive trading days.
+
 ## 2026-09-19
 
 **The scheduling failure that has run since 2026-08-27 was misdiagnosed from

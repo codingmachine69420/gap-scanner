@@ -2,25 +2,15 @@ name: Gap Scan
 
 on:
   schedule:
-    # GitHub cron is UTC only, and Actions cron can jitter 20+ minutes under
-    # load. So each mode starts well before its own capture target and lets
-    # scan.py sleep to it precisely; each mode also gets a backup cron in
-    # case the primary is delayed past the target. All eight straddle DST.
-    # Every cron fires both jobs below — scan.py's should_run() guard plus
-    # its per-mode, same-day idempotency check make the extra firings cheap
-    # no-ops once that mode's file for today is committed. That includes a
-    # cross-job wrong-DST case (e.g. the range job woken by a fast-oriented
-    # or wrong-season cron up to 87 min before its own 10:02:00 target) —
-    # scan.py's MAX_SLEEP_SECONDS is sized to sleep through that, not reject
-    # it, since an early start is harmless by design.
-    - cron: "0 13 * * 1-5"     # 09:00 ET (EDT) — fast primary
-    - cron: "40 12 * * 1-5"    # 08:40 ET (EDT) — fast backup
-    - cron: "0 14 * * 1-5"     # 09:00 ET (EST) — fast primary
-    - cron: "40 13 * * 1-5"    # 08:40 ET (EST) — fast backup
-    - cron: "35 13 * * 1-5"    # 09:35 ET (EDT) — range primary
-    - cron: "15 13 * * 1-5"    # 09:15 ET (EDT) — range backup
-    - cron: "35 14 * * 1-5"    # 09:35 ET (EST) — range primary
-    - cron: "15 14 * * 1-5"    # 09:15 ET (EST) — range backup
+    # GitHub creates scheduled runs 3.5-9.5 hours after their cron time
+    # (measured 8/27-9/21, see CHANGELOG), so no cron can be placed to land
+    # just before the 09:32:30 target. Instead fire every hour, every day:
+    # runs outside a mode's guard window (weekends, nights, afternoons) exit
+    # in seconds, and the first run landing in the 5h30m before a target
+    # sleeps on the runner until it. Whatever the delay, hourly arrivals put
+    # several runs inside that window. UTC-only cron is fine: scan.py works
+    # in ET, so there are no DST-specific entries any more.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -43,7 +33,7 @@ jobs:
     # idempotency check is what keeps that safe and cheap.
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'fast'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360   # max for hosted runners; covers the 5h30m sleep
 
     concurrency:
       group: gap-scan-fast
@@ -84,7 +74,7 @@ jobs:
   scan-range:
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'range'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360   # max for hosted runners; covers the 5h30m sleep
 
     concurrency:
       group: gap-scan-range

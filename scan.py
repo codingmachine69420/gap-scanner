@@ -90,15 +90,15 @@ BATCH_SIZE = 200
 SLEEP_TARGET_TIME = dtime(9, 32, 30)   # fast
 RANGE_TARGET_TIME = dtime(10, 2, 0)    # range
 MODE_TARGET_TIME = {"fast": SLEEP_TARGET_TIME, "range": RANGE_TARGET_TIME}
-# 100 min, not 60: GitHub Actions fires every job on every schedule entry —
-# there's no per-job cron filtering — so the range job (target 10:02:00)
-# also receives the fast-oriented and wrong-DST-season firings, not just its
-# own. Worst real case: the "range primary (EDT)" cron fires at 08:35 ET
-# during EST season, 87 minutes before the range target. That's a routine
-# recurring event each winter, not a broken-logic edge case, so the cap
-# has to clear it with margin. It only needs to catch genuinely broken time
-# logic (multi-hour waits), not a legitimate cross-job or wrong-DST firing.
-MAX_SLEEP_SECONDS = 100 * 60
+# Arm window. GitHub's schedule: trigger creates runs 3.5-9.5 hours after
+# their cron time (measured 8/27-9/21; see CHANGELOG), so no cron can be
+# placed to arrive shortly before the target. Instead scan.yml fires hourly,
+# around the clock, and whichever run lands in the ARM_LEAD before a mode's
+# target sleeps on the runner until it. 5h30m keeps the longest sleep plus
+# the scan inside GitHub-hosted runners' 6-hour job limit (timeout-minutes:
+# 360 in scan.yml). Hourly arrivals guarantee ~5 candidates per window.
+ARM_LEAD = timedelta(hours=5, minutes=30)
+MAX_SLEEP_SECONDS = int(ARM_LEAD.total_seconds())
 
 MODE_OUTPUT_FILENAMES = {"fast": "latest.json", "range": "range.json"}
 MODE_OR_WINDOW_LABEL = {
@@ -129,10 +129,15 @@ ALERT_SNAPSHOT_TIME = SLEEP_TARGET_TIME  # same instant as fast mode's capture
 SEGMENT_SPLIT_TIME = dtime(9, 45)
 REVERSAL_THRESHOLD = 0.02
 
-# Wide guard window: this only exists to catch the DST-mismatched cron, not
-# to enforce precision. The sleep-to-target above handles precision.
-GUARD_WINDOW_START = dtime(8, 30)
+# Guard window, per mode: opens ARM_LEAD before the mode's target (04:02:30
+# fast, 04:32:00 range) and closes at 14:00. Hourly runs outside it exit in
+# seconds. The sleep-to-target handles precision; this only bounds it.
 GUARD_WINDOW_END = dtime(14, 0)
+
+
+def guard_window_start(mode: str) -> dtime:
+    target = datetime.combine(date(2000, 1, 1), MODE_TARGET_TIME[mode])
+    return (target - ARM_LEAD).time()
 
 # US market holidays. Extend annually — this is deliberately explicit rather
 # than a dependency, since the list is short and the failure mode of a stale
@@ -173,18 +178,18 @@ def already_ran_today(now_et: datetime, mode: str = "fast") -> bool:
 
 
 def should_run(now_et: datetime, warnings: list[str], mode: str = "fast") -> bool:
-    """Multiple UTC cron entries exist per mode, straddling DST plus an
-    early backup — any of them can fire on any given morning."""
+    """scan.yml fires hourly, so most runs land outside the guard window
+    and exit here; the first one inside it does the day's work."""
     if now_et.weekday() >= 5:
         log.info("Weekend. Exiting.")
         return False
     if now_et.strftime("%Y-%m-%d") in HOLIDAYS_2026:
         log.info("Market holiday. Exiting.")
         return False
-    if not (GUARD_WINDOW_START <= now_et.time() < GUARD_WINDOW_END):
-        log.info("ET time is %s, outside the %s-%s guard window — likely "
-                 "the DST-mismatched cron. Exiting.", now_et.strftime("%H:%M"),
-                 GUARD_WINDOW_START, GUARD_WINDOW_END)
+    start = guard_window_start(mode)
+    if not (start <= now_et.time() < GUARD_WINDOW_END):
+        log.info("ET time is %s, outside the %s %s-%s guard window. Exiting.",
+                 now_et.strftime("%H:%M"), mode, start, GUARD_WINDOW_END)
         return False
     if already_ran_today(now_et, mode):
         log.info("already have today's data, exiting")

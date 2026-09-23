@@ -75,8 +75,18 @@ class ShouldRunTests(unittest.TestCase):
         self.assertFalse(scan.should_run(now, []))
 
     def test_before_guard_window_exits(self):
-        now = datetime(2026, 8, 18, 8, 0, 0, tzinfo=scan.ET)
+        now = datetime(2026, 8, 18, 4, 2, 29, tzinfo=scan.ET)
         self.assertFalse(scan.should_run(now, []))
+
+    def test_guard_window_opens_arm_lead_before_target(self):
+        now = datetime(2026, 8, 18, 4, 2, 30, tzinfo=scan.ET)
+        self.assertTrue(scan.should_run(now, []))
+
+    def test_range_guard_window_opens_arm_lead_before_its_target(self):
+        early = datetime(2026, 8, 18, 4, 31, 59, tzinfo=scan.ET)
+        self.assertFalse(scan.should_run(early, [], mode="range"))
+        start = datetime(2026, 8, 18, 4, 32, 0, tzinfo=scan.ET)
+        self.assertTrue(scan.should_run(start, [], mode="range"))
 
     def test_after_guard_window_exits(self):
         now = datetime(2026, 8, 18, 14, 30, 0, tzinfo=scan.ET)
@@ -155,34 +165,22 @@ class ModeOutputPathTests(unittest.TestCase):
         self.assertEqual(scan.mode_output_path("range"), scan.DATA_DIR / "range.json")
 
 
-class SafetyCapCoversBackupCronsTests(unittest.TestCase):
-    """Regression for a real bug caught in review: the backup crons
-    (.github/workflows/scan.yml) legitimately compute long waits against
-    their mode's target. MAX_SLEEP_SECONDS must stay above both, or the
-    backup fails itself with the safety-cap error every day it's needed."""
+class SafetyCapCoversArmWindowTests(unittest.TestCase):
+    """Any run should_run() admits must be able to sleep to its target
+    without tripping the safety cap, and the longest sleep must fit in
+    GitHub-hosted runners' 6-hour job limit."""
 
-    def test_fast_backup_cron_wait_is_within_cap(self):
-        # 08:40 ET (EDT) backup, per scan.yml, against the 09:32:30 target.
-        now = datetime(2026, 8, 18, 8, 40, 0, tzinfo=scan.ET)
-        wait = scan.seconds_until_target(now, scan.MODE_TARGET_TIME["fast"])
-        self.assertLessEqual(wait, scan.MAX_SLEEP_SECONDS)
+    def test_earliest_admitted_wait_is_within_cap(self):
+        for mode in ("fast", "range"):
+            start = scan.guard_window_start(mode)
+            for day in (datetime(2026, 8, 18), datetime(2026, 1, 15)):  # EDT, EST
+                now = datetime.combine(day.date(), start, scan.ET)
+                self.assertTrue(scan.should_run(now, [], mode=mode))
+                wait = scan.seconds_until_target(now, scan.MODE_TARGET_TIME[mode])
+                self.assertLessEqual(wait, scan.MAX_SLEEP_SECONDS)
 
-    def test_range_backup_cron_wait_is_within_cap(self):
-        # 09:15 ET (EDT) backup, per scan.yml, against the 10:02:00 target.
-        now = datetime(2026, 8, 18, 9, 15, 0, tzinfo=scan.ET)
-        wait = scan.seconds_until_target(now, scan.MODE_TARGET_TIME["range"])
-        self.assertLessEqual(wait, scan.MAX_SLEEP_SECONDS)
-
-    def test_range_job_woken_by_wrong_dst_cron_is_within_cap(self):
-        # Every job fires on every schedule entry (no per-job cron
-        # filtering), so the range job also receives the "range primary
-        # (EDT)" cron. During EST season that cron fires at 08:35 ET --
-        # 87 minutes before the 10:02:00 range target. Routine each winter,
-        # not broken logic, so the cap must clear it.
-        now = datetime(2026, 1, 15, 8, 35, 0, tzinfo=scan.ET)  # EST season
-        wait = scan.seconds_until_target(now, scan.MODE_TARGET_TIME["range"])
-        self.assertAlmostEqual(wait, 87 * 60, delta=1)
-        self.assertLessEqual(wait, scan.MAX_SLEEP_SECONDS)
+    def test_cap_leaves_headroom_under_six_hour_job_limit(self):
+        self.assertLessEqual(scan.MAX_SLEEP_SECONDS, 6 * 3600 - 20 * 60)
 
 
 class ModeTargetTimeTests(unittest.TestCase):
