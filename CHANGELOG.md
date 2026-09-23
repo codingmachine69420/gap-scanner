@@ -10,7 +10,21 @@ than in the repo.
 Re-created 2026-09-19. The previous CHANGELOG was deleted by the 2026-09-17
 revert (`81f08f3`). Much of what it asserted was wrong — see below.
 
-## 2026-09-22
+## 2026-09-23
+
+**The hourly schedule went live at ~10:55 ET (`58758aa`).** Tests pass
+45/45 under `python -m unittest test_scan`; pytest isn't installed. The
+first armed window opens 9/24 04:02 ET.
+
+No scheduled capture had landed for 9/23 by 10:55 ET, so both modes were run
+by hand with `gh workflow run scan.yml -f mode=fast`, then `-f mode=range`
+(`force` defaults to true). This happened after both targets, so the pre-open
+`FORCE_RUN` trap didn't apply. Both committed within ~30s (`ac725a7`,
+`8997a78`). The capture windows (09:30-09:32, 09:30-10:00) were rebuilt from
+historical bars, so the data is correct even though the run was late. Alert
+and Brief had already checked before it landed, so neither email included
+9/23.
+
 
 **Hourly "arm and sleep" schedule replaces the eight fixed crons. No external
 clock, no credentials, all on GitHub.**
