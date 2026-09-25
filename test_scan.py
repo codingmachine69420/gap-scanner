@@ -183,6 +183,59 @@ class SafetyCapCoversArmWindowTests(unittest.TestCase):
         self.assertLessEqual(scan.MAX_SLEEP_SECONDS, 6 * 3600 - 20 * 60)
 
 
+class RelayWaitTests(unittest.TestCase):
+    """relay_wait_seconds(): how long a run arriving before the arm window
+    sleeps before dispatching a fresh run, or None if it should not relay.
+    Regression for 9/24 and 9/25, when the only pre-dawn arrival landed at
+    ~03:40-03:54 ET, minutes before the window opened, and the next
+    scheduled run did not arrive until after the 09:32:30 target."""
+
+    def _et(self, *args):
+        return datetime(*args, tzinfo=scan.ET)
+
+    def test_relay_arrival_is_inside_both_guard_windows(self):
+        for mode in ("fast", "range"):
+            self.assertGreaterEqual(scan.RELAY_ARRIVAL_TIME,
+                                    scan.guard_window_start(mode))
+
+    def test_9_25_arrival_at_03_54_sleeps_to_relay_arrival(self):
+        now = self._et(2026, 9, 25, 3, 54, 0)
+        self.assertEqual(scan.relay_wait_seconds(now), 46 * 60)
+
+    def test_evening_arrival_takes_a_full_hop(self):
+        # Thu 21:34 ET (9/25 01:34Z): 04:40 Fri is 7h06m away, > one hop.
+        now = self._et(2026, 9, 24, 21, 34, 0)
+        self.assertEqual(scan.relay_wait_seconds(now), scan.RELAY_MAX_HOP_SECONDS)
+
+    def test_hop_fits_in_six_hour_job_limit(self):
+        self.assertLessEqual(scan.RELAY_MAX_HOP_SECONDS, 6 * 3600 - 15 * 60)
+
+    def test_too_far_ahead_does_not_relay(self):
+        # Thu 14:30 ET: Fri 04:40 is 14h10m away, beyond two hops.
+        self.assertIsNone(scan.relay_wait_seconds(self._et(2026, 9, 24, 14, 30)))
+
+    def test_inside_window_does_not_relay(self):
+        # 05:00 ET: the scan jobs arm themselves; tomorrow is too far.
+        self.assertIsNone(scan.relay_wait_seconds(self._et(2026, 9, 25, 5, 0)))
+
+    def test_friday_night_does_not_relay_into_weekend(self):
+        self.assertIsNone(scan.relay_wait_seconds(self._et(2026, 9, 25, 23, 0)))
+
+    def test_sunday_night_relays_to_monday(self):
+        now = self._et(2026, 9, 27, 23, 40, 0)
+        self.assertEqual(scan.relay_wait_seconds(now), 5 * 3600)
+
+    def test_holiday_is_skipped(self):
+        # Sun 9/6 23:40 ET: Mon 9/7 is Labor Day, next session Tue 9/8.
+        self.assertIsNone(scan.relay_wait_seconds(self._et(2026, 9, 6, 23, 40)))
+        now = self._et(2026, 9, 7, 23, 40, 0)
+        self.assertEqual(scan.relay_wait_seconds(now), 5 * 3600)
+
+    def test_winter_est_arrival(self):
+        now = self._et(2026, 1, 15, 3, 0, 0)
+        self.assertEqual(scan.relay_wait_seconds(now), 100 * 60)
+
+
 class ModeTargetTimeTests(unittest.TestCase):
     def test_fast_target_is_09_32_30(self):
         now = datetime(2026, 8, 18, 9, 0, 0, tzinfo=scan.ET)

@@ -10,6 +10,34 @@ than in the repo.
 Re-created 2026-09-19. The previous CHANGELOG was deleted by the 2026-09-17
 revert (`81f08f3`). Much of what it asserted was wrong — see below.
 
+## 2026-09-25
+
+**The hourly cron is not hourly. Added a self-dispatching relay job.**
+
+GitHub delivers `17 * * * *` only ~4-5 times a day, 3-6.3h apart, and the
+overnight gaps are the longest:
+
+    9/24  01:27Z -> 07:38Z (6.2h) -> 13:35Z (6.0h)
+    9/25  01:34Z -> 07:53Z (6.3h) -> 13:52Z (6.0h)
+
+Both days the pre-dawn run landed at ~03:40-03:54 ET, minutes *before* the
+04:02:30 window opened, and exited. The next arrival was after the target:
+9/24 fast captured 183s late (luck); 9/25 fast captured at 09:53 ET, after
+Gap Up Alert (09:42) had already read 9/24's `latest.json`. Range was on time
+both days (10:02), so the Brief was fine. A 5h30m window can't be
+guaranteed a run when runs are 6h+ apart, and it can't be widened: the sleep
+must fit the 6h job limit.
+
+Fix: a `relay` job. A scheduled run landing up to 11h20m before 04:40 ET
+sleeps until 04:40 (or one 5h40m hop, then the dispatched run relays again)
+and then runs `gh workflow run scan.yml -f mode=all -f force=false` with
+`GITHUB_TOKEN`. `workflow_dispatch` is the one event GITHUB_TOKEN may trigger,
+and dispatched runs start in <60s, so the run lands at ~04:40, inside both
+windows, and arms both jobs normally. Needs `permissions: actions: write`.
+`force=false` matters: the default `force: true` would skip the guard and
+write a pre-open file (see the FORCE_RUN trap). Logic is
+`relay_wait_seconds()` in `scan.py`; 10 new tests, 55/55 pass.
+
 ## 2026-09-23
 
 **The hourly schedule went live at ~10:55 ET (`58758aa`).** Tests pass

@@ -50,7 +50,7 @@ import logging
 import os
 import sys
 import time
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -96,7 +96,8 @@ MODE_TARGET_TIME = {"fast": SLEEP_TARGET_TIME, "range": RANGE_TARGET_TIME}
 # around the clock, and whichever run lands in the ARM_LEAD before a mode's
 # target sleeps on the runner until it. 5h30m keeps the longest sleep plus
 # the scan inside GitHub-hosted runners' 6-hour job limit (timeout-minutes:
-# 360 in scan.yml). Hourly arrivals guarantee ~5 candidates per window.
+# 360 in scan.yml). Hourly crons arrive only every 3-6.3h in practice, so
+# the relay job (relay_wait_seconds) bridges the gap before the window.
 ARM_LEAD = timedelta(hours=5, minutes=30)
 MAX_SLEEP_SECONDS = int(ARM_LEAD.total_seconds())
 
@@ -138,6 +139,15 @@ GUARD_WINDOW_END = dtime(14, 0)
 def guard_window_start(mode: str) -> dtime:
     target = datetime.combine(date(2000, 1, 1), MODE_TARGET_TIME[mode])
     return (target - ARM_LEAD).time()
+
+# Relay (RUN_MODE=relay, see relay_wait_seconds()). The dispatched run lands
+# at 04:40 ET, a few minutes after the later of the two windows opens
+# (range, 04:32), so both jobs arm from it. One hop is capped under the
+# 6-hour job limit; two hops cover any gap between scheduled arrivals up
+# to 11h20m (observed max 6.3h).
+RELAY_ARRIVAL_TIME = dtime(4, 40)
+RELAY_MAX_HOP_SECONDS = 5 * 3600 + 40 * 60
+RELAY_HORIZON_SECONDS = 2 * RELAY_MAX_HOP_SECONDS
 
 # US market holidays. Extend annually — this is deliberately explicit rather
 # than a dependency, since the list is short and the failure mode of a stale
@@ -195,6 +205,38 @@ def should_run(now_et: datetime, warnings: list[str], mode: str = "fast") -> boo
         log.info("already have today's data, exiting")
         return False
     return True
+
+
+def next_trading_day(day: date) -> date:
+    """day itself if it is a session, else the next one."""
+    while day.weekday() >= 5 or day.strftime("%Y-%m-%d") in HOLIDAYS_2026:
+        day += timedelta(days=1)
+    return day
+
+
+def relay_wait_seconds(now_et: datetime) -> float | None:
+    """Seconds a relay run sleeps before dispatching a fresh run, or None.
+
+    The hourly cron is delivered only ~4-5 times a day, 3-6.3h apart, and
+    on 9/24 and 9/25 the pre-dawn arrival landed minutes before the arm
+    window opened, with nothing else until after the target. A run that
+    lands before RELAY_ARRIVAL_TIME therefore sleeps up to it and dispatches
+    a workflow_dispatch run (starts in <60s), which lands inside both modes'
+    windows and arms normally. If that is further than one hop, it sleeps a
+    full hop and the dispatched run relays again. Beyond RELAY_HORIZON it
+    does nothing; a later scheduled arrival will pick it up.
+    """
+    day = now_et.date()
+    if now_et.time() >= RELAY_ARRIVAL_TIME:
+        day += timedelta(days=1)
+    arrival = datetime.combine(next_trading_day(day), RELAY_ARRIVAL_TIME, ET)
+    # Compare in UTC: aware datetimes sharing a tzinfo subtract as naive
+    # wall-clock times, which is wrong across a DST change.
+    wait = (arrival.astimezone(timezone.utc)
+            - now_et.astimezone(timezone.utc)).total_seconds()
+    if wait > RELAY_HORIZON_SECONDS:
+        return None
+    return min(wait, RELAY_MAX_HOP_SECONDS)
 
 
 def target_datetime(now_et: datetime, target_time: dtime = SLEEP_TARGET_TIME) -> datetime:
@@ -506,11 +548,34 @@ def sort_movers(movers: list[dict]) -> list[dict]:
 
 # ---------------------------------------------------------------------- main
 
+def relay() -> int:
+    """RUN_MODE=relay: sleep, then tell scan.yml to dispatch a fresh run by
+    writing dispatch=true to $GITHUB_OUTPUT. Writes nothing if no relay is
+    needed."""
+    wait = relay_wait_seconds(datetime.now(ET))
+    if wait is None:
+        log.info("Next relay arrival is beyond the horizon (or the scan jobs "
+                 "can arm from here). Nothing to relay.")
+        return 0
+    if wait > 0:
+        mins, secs = divmod(int(round(wait)), 60)
+        log.info("Relay: sleeping %dm %ds, then dispatching a fresh run.",
+                 mins, secs)
+        time.sleep(wait)
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a") as fh:
+            fh.write("dispatch=true\n")
+    return 0
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s %(name)s: %(message)s")
 
     mode = os.environ.get("RUN_MODE", "fast")
+    if mode == "relay":
+        return relay()
     if mode not in MODE_TARGET_TIME:
         log.error("RUN_MODE must be 'fast' or 'range', got %r", mode)
         return 1

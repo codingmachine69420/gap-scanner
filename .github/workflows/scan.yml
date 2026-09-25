@@ -16,7 +16,8 @@ on:
       mode:
         description: "RUN_MODE (only the matching job runs on manual dispatch)"
         type: choice
-        options: [fast, range]
+        # all = both jobs, used by the relay job's self-dispatch.
+        options: [fast, range, all]
         default: fast
       force:
         description: "Bypass the guard and sleep-to-target"
@@ -25,13 +26,14 @@ on:
 
 permissions:
   contents: write
+  actions: write   # relay job dispatches this workflow
 
 jobs:
   scan-fast:
     # On manual dispatch, only run the job matching the chosen mode.
     # Scheduled runs always attempt both jobs; should_run()'s per-mode
     # idempotency check is what keeps that safe and cheap.
-    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'fast'
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'fast' || inputs.mode == 'all'
     runs-on: ubuntu-latest
     timeout-minutes: 360   # max for hosted runners; covers the 5h30m sleep
 
@@ -72,7 +74,7 @@ jobs:
           fi
 
   scan-range:
-    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'range'
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'range' || inputs.mode == 'all'
     runs-on: ubuntu-latest
     timeout-minutes: 360   # max for hosted runners; covers the 5h30m sleep
 
@@ -113,3 +115,42 @@ jobs:
             git pull --rebase
             git push
           fi
+
+  relay:
+    # Scheduled arrivals are 3-6.3h apart, so the one before the arm window
+    # can be followed by nothing until after the target (9/24, 9/25). A run
+    # landing up to 11h20m before 04:40 ET sleeps (one hop, or a full hop
+    # then again from the dispatched run) and dispatches mode=all,
+    # force=false, which starts in <60s and arms both jobs. GITHUB_TOKEN may
+    # trigger workflow_dispatch (unlike push etc.). The concurrency group
+    # keeps one relay sleeping; newer scheduled relays wait behind it and
+    # exit once it has fired.
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'all'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360   # covers the 5h40m hop
+
+    concurrency:
+      group: gap-scan-relay
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Sleep until the relay arrival
+        id: relay
+        env:
+          RUN_MODE: relay
+        run: python scan.py
+
+      - name: Dispatch a fresh run
+        if: steps.relay.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run scan.yml --repo "$GITHUB_REPOSITORY" --ref main -f mode=all -f force=false
