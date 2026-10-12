@@ -1,0 +1,23 @@
+{
+ "as_of": "2026-10-12T09:32:30.000195-04:00",
+ "session_date": "2026-10-12",
+ "prior_session_date": "2026-10-09",
+ "universe_size": 956,
+ "symbols_with_bars": 912,
+ "thresholds": {
+  "min_market_cap": 10000000000.0,
+  "min_gap": 0.05
+ },
+ "data_sources": {
+  "universe": "cache:nasdaq_screener",
+  "bars": "alpaca_iex",
+  "earnings": "nasdaq_calendar"
+ },
+ "data_caveat": "Bars are Alpaca free-tier IEX feed (~5-10% of consolidated volume). Prices are representative for large caps; volume is indicative only.",
+ "warnings": [],
+ "or_window": "09:30-09:32 ET (fast capture)",
+ "windows": {
+  "gap": "prior close 16:00 ET \u2192 09:30 open"
+ },
+ "movers": []
+}
