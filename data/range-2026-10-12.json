@@ -1,0 +1,62 @@
+{
+ "as_of": "2026-10-12T10:02:00.000186-04:00",
+ "session_date": "2026-10-12",
+ "prior_session_date": "2026-10-09",
+ "universe_size": 956,
+ "symbols_with_bars": 916,
+ "thresholds": {
+  "min_market_cap": 10000000000.0,
+  "min_gap": 0.05
+ },
+ "data_sources": {
+  "universe": "cache:nasdaq_screener",
+  "bars": "alpaca_iex",
+  "earnings": "nasdaq_calendar"
+ },
+ "data_caveat": "Bars are Alpaca free-tier IEX feed (~5-10% of consolidated volume). Prices are representative for large caps; volume is indicative only.",
+ "warnings": [],
+ "or_window": "09:30-10:00 ET",
+ "windows": {
+  "gap": "prior close 16:00 ET \u2192 09:30 open",
+  "early": "09:30 \u2192 09:45 ET",
+  "late": "09:45 \u2192 10:00 ET",
+  "reversal": "09:32 \u2192 10:00 ET"
+ },
+ "movers": [
+  {
+   "ticker": "SITM",
+   "name": "SiTime Corporation Common Stock",
+   "exchange": null,
+   "sector": "Technology",
+   "market_cap": 20414324209.0,
+   "prior_close": 611.475,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 579.68,
+   "or_close": 583.41,
+   "gap_pct": -0.052,
+   "or_move": 0.00643,
+   "or_range_pct": 0.01608,
+   "or_high": 589,
+   "or_low": 579.68,
+   "volume_or": 906,
+   "price_0932": null,
+   "move_since_alert": null,
+   "price_0945": 589,
+   "move_early": 0.01608,
+   "move_late": -0.00949,
+   "reversal_basis": "late",
+   "reversal": false,
+   "earnings": {
+    "reported": false,
+    "timing": null,
+    "date": null,
+    "eps_actual": null,
+    "eps_estimate": null,
+    "surprise_pct": null
+   }
+  }
+ ],
+ "reversal_threshold": 0.02
+}
