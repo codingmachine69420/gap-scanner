@@ -1,0 +1,78 @@
+{
+ "as_of": "2026-10-16T09:32:30.000186-04:00",
+ "session_date": "2026-10-16",
+ "prior_session_date": "2026-10-15",
+ "universe_size": 972,
+ "symbols_with_bars": 936,
+ "thresholds": {
+  "min_market_cap": 10000000000.0,
+  "min_gap": 0.05
+ },
+ "data_sources": {
+  "universe": "cache:nasdaq_screener",
+  "bars": "alpaca_iex",
+  "earnings": "nasdaq_calendar"
+ },
+ "data_caveat": "Bars are Alpaca free-tier IEX feed (~5-10% of consolidated volume). Prices are representative for large caps; volume is indicative only.",
+ "warnings": [],
+ "or_window": "09:30-09:32 ET (fast capture)",
+ "windows": {
+  "gap": "prior close 16:00 ET \u2192 09:30 open"
+ },
+ "movers": [
+  {
+   "ticker": "TLK",
+   "name": "PT Telekomunikasi Indonesia Tbk",
+   "exchange": null,
+   "sector": "Telecommunications",
+   "market_cap": 12709682390.0,
+   "prior_close": 12.77,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 10.85,
+   "or_close": 10.63,
+   "gap_pct": -0.15035,
+   "or_move": -0.02028,
+   "or_range_pct": 0.02028,
+   "or_high": 10.85,
+   "or_low": 10.63,
+   "volume_or": 7868,
+   "earnings": {
+    "reported": false,
+    "timing": null,
+    "date": null,
+    "eps_actual": null,
+    "eps_estimate": null,
+    "surprise_pct": null
+   }
+  },
+  {
+   "ticker": "CRWV",
+   "name": "CoreWeave Inc. Class A Common Stock",
+   "exchange": null,
+   "sector": "Technology",
+   "market_cap": 45270124292.0,
+   "prior_close": 69.68,
+   "premkt_last": 66.01,
+   "premkt_move": -0.05267,
+   "premkt_bar_count": 4,
+   "open_930": 65.195,
+   "or_close": 64.89,
+   "gap_pct": -0.06437,
+   "or_move": -0.00468,
+   "or_range_pct": 0.01465,
+   "or_high": 65.355,
+   "or_low": 64.4,
+   "volume_or": 64981,
+   "earnings": {
+    "reported": false,
+    "timing": null,
+    "date": null,
+    "eps_actual": null,
+    "eps_estimate": null,
+    "surprise_pct": null
+   }
+  }
+ ]
+}
