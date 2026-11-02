@@ -1,0 +1,132 @@
+{
+ "as_of": "2026-11-02T09:32:30.000189-05:00",
+ "session_date": "2026-11-02",
+ "prior_session_date": "2026-10-30",
+ "universe_size": 958,
+ "symbols_with_bars": 923,
+ "thresholds": {
+  "min_market_cap": 10000000000.0,
+  "min_gap": 0.05
+ },
+ "data_sources": {
+  "universe": "cache:nasdaq_screener",
+  "bars": "alpaca_iex",
+  "earnings": "nasdaq_calendar"
+ },
+ "data_caveat": "Bars are Alpaca free-tier IEX feed (~5-10% of consolidated volume). Prices are representative for large caps; volume is indicative only.",
+ "warnings": [],
+ "or_window": "09:30-09:32 ET (fast capture)",
+ "windows": {
+  "gap": "prior close 16:00 ET \u2192 09:30 open"
+ },
+ "movers": [
+  {
+   "ticker": "IDXX",
+   "name": "IDEXX Laboratories Inc. Common Stock",
+   "exchange": null,
+   "sector": "Health Care",
+   "market_cap": 44921780154.0,
+   "prior_close": 551.48,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 622.6,
+   "or_close": 626.905,
+   "gap_pct": 0.12896,
+   "or_move": 0.00691,
+   "or_range_pct": 0.00926,
+   "or_high": 626.905,
+   "or_low": 621.14,
+   "volume_or": 583,
+   "earnings": {
+    "reported": true,
+    "timing": "BMO",
+    "date": "2026-11-02",
+    "eps_actual": null,
+    "eps_estimate": "$3.71",
+    "surprise_pct": null
+   }
+  },
+  {
+   "ticker": "MAR",
+   "name": "Marriott International Class A Common Stock",
+   "exchange": null,
+   "sector": "Consumer Discretionary",
+   "market_cap": 102937492188.0,
+   "prior_close": 399.62,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 425.13,
+   "or_close": 430.51,
+   "gap_pct": 0.06384,
+   "or_move": 0.01265,
+   "or_range_pct": 0.01748,
+   "or_high": 432.23,
+   "or_low": 424.8,
+   "volume_or": 2439,
+   "earnings": {
+    "reported": true,
+    "timing": "BMO",
+    "date": "2026-11-02",
+    "eps_actual": null,
+    "eps_estimate": "$2.86",
+    "surprise_pct": null
+   }
+  },
+  {
+   "ticker": "NXT",
+   "name": "Nextpower Inc. Common Stock",
+   "exchange": null,
+   "sector": "Technology",
+   "market_cap": 11604273690.0,
+   "prior_close": 79.34,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 83.775,
+   "or_close": 83.395,
+   "gap_pct": 0.0559,
+   "or_move": -0.00454,
+   "or_range_pct": 0.01182,
+   "or_high": 84.32,
+   "or_low": 83.33,
+   "volume_or": 1631,
+   "earnings": {
+    "reported": false,
+    "timing": null,
+    "date": null,
+    "eps_actual": null,
+    "eps_estimate": null,
+    "surprise_pct": null
+   }
+  },
+  {
+   "ticker": "PKX",
+   "name": "POSCO HOLDINGS INC. American Depositary Shares (Each representing 1/4th of a share of Common Stock)",
+   "exchange": null,
+   "sector": "Industrials",
+   "market_cap": 16390541439.0,
+   "prior_close": 49.675,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 52.34,
+   "or_close": 52.34,
+   "gap_pct": 0.05365,
+   "or_move": 0.0,
+   "or_range_pct": 0.0,
+   "or_high": 52.34,
+   "or_low": 52.34,
+   "volume_or": 219,
+   "earnings": {
+    "reported": true,
+    "timing": "UNKNOWN",
+    "date": "2026-11-02",
+    "eps_actual": null,
+    "eps_estimate": "$1.29",
+    "surprise_pct": null
+   }
+  }
+ ]
+}
