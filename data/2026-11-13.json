@@ -1,0 +1,105 @@
+{
+ "as_of": "2026-11-13T09:32:30.000230-05:00",
+ "session_date": "2026-11-13",
+ "prior_session_date": "2026-11-12",
+ "universe_size": 975,
+ "symbols_with_bars": 937,
+ "thresholds": {
+  "min_market_cap": 10000000000.0,
+  "min_gap": 0.05
+ },
+ "data_sources": {
+  "universe": "cache:nasdaq_screener",
+  "bars": "alpaca_iex",
+  "earnings": "nasdaq_calendar"
+ },
+ "data_caveat": "Bars are Alpaca free-tier IEX feed (~5-10% of consolidated volume). Prices are representative for large caps; volume is indicative only.",
+ "warnings": [],
+ "or_window": "09:30-09:32 ET (fast capture)",
+ "windows": {
+  "gap": "prior close 16:00 ET \u2192 09:30 open"
+ },
+ "movers": [
+  {
+   "ticker": "CBRS",
+   "name": "Cerebras Systems Inc. Class A Common Stock",
+   "exchange": null,
+   "sector": "Technology",
+   "market_cap": 22972442765.0,
+   "prior_close": 97.97,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 108.98,
+   "or_close": 116.59,
+   "gap_pct": 0.11238,
+   "or_move": 0.06983,
+   "or_range_pct": 0.07396,
+   "or_high": 116.68,
+   "or_low": 108.62,
+   "volume_or": 29806,
+   "earnings": {
+    "reported": true,
+    "timing": "UNKNOWN",
+    "date": "2026-11-12",
+    "eps_actual": "$0.13",
+    "eps_estimate": "($0.13)",
+    "surprise_pct": "200"
+   }
+  },
+  {
+   "ticker": "KEP",
+   "name": "Korea Electric Power Corporation Common Stock",
+   "exchange": null,
+   "sector": "Utilities",
+   "market_cap": 14546905985.0,
+   "prior_close": 11.12,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 10.17,
+   "or_close": 10.005,
+   "gap_pct": -0.08543,
+   "or_move": -0.01622,
+   "or_range_pct": 0.01622,
+   "or_high": 10.17,
+   "or_low": 10.005,
+   "volume_or": 739,
+   "earnings": {
+    "reported": false,
+    "timing": null,
+    "date": null,
+    "eps_actual": null,
+    "eps_estimate": null,
+    "surprise_pct": null
+   }
+  },
+  {
+   "ticker": "WSE",
+   "name": "Wise Group plc Class A Ordinary Shares",
+   "exchange": null,
+   "sector": "Industrials",
+   "market_cap": 13891801062.0,
+   "prior_close": 10.93,
+   "premkt_last": null,
+   "premkt_move": null,
+   "premkt_bar_count": 0,
+   "open_930": 11.73,
+   "or_close": 11.645,
+   "gap_pct": 0.07319,
+   "or_move": -0.00725,
+   "or_range_pct": 0.01108,
+   "or_high": 11.74,
+   "or_low": 11.61,
+   "volume_or": 7359,
+   "earnings": {
+    "reported": false,
+    "timing": null,
+    "date": null,
+    "eps_actual": null,
+    "eps_estimate": null,
+    "surprise_pct": null
+   }
+  }
+ ]
+}
